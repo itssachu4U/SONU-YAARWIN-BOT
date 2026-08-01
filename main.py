@@ -49,11 +49,6 @@ TELEGRAM_ACCOUNTS = [
     #     "api_hash": "abcdef1234567890abcdef1234567890",
     #     "label":    "Account 2",
     # },
-    # {
-    #     "api_id":   98765432,
-    #     "api_hash": "fedcba9876543210fedcba9876543210",
-    #     "label":    "Account 3",
-    # },
 ]
 
 _ACTIVE  = TELEGRAM_ACCOUNTS[0]
@@ -88,9 +83,14 @@ TARGET_CHANNEL_IDS = [
 APK_PATH   = "𝐘𝐀𝐀𝐑𝐖𝐈𝐍 𝐍𝐔𝐌𝐁𝐄𝐑 𝐓𝐎𝐎𝐋.apk"
 VOICE_PATH = "VOICEHACK.ogg"
 VIDEO_PATH = "BIITU-YAAR.mp4"
-DB_NAME    = "users.db"
 
 # =============================================================================
+#  DATABASE
+#  ⚠️ users.db is a FILE on Railway's persistent disk.
+#  Editing main.py on GitHub and redeploying does NOT affect users.db.
+#  Users are ONLY lost if you manually delete the Railway service/volume.
+# =============================================================================
+DB_NAME = "users.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -102,13 +102,23 @@ LOGIN_PHONE    = 1
 LOGIN_OTP      = 2
 LOGIN_PASSWORD = 3
 
+# ---------------------------------------------------------------------------
+#  Tracks message IDs we relayed FROM supervisor TO target channels.
+#  This prevents the bot from re-broadcasting those same posts back to user
+#  DMs a second time (which caused the "7x sends" bug).
+# ---------------------------------------------------------------------------
+_relayed_ids: set[tuple[int, int]] = set()  # (target_chat_id, target_msg_id)
+
 # =============================================================================
-#  DATABASE
+#  DATABASE HELPERS
 # =============================================================================
 conn   = sqlite3.connect(DB_NAME, check_same_thread=False)
 cursor = conn.cursor()
 
-cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, joined_at TEXT)")
+cursor.execute(
+    "CREATE TABLE IF NOT EXISTS users "
+    "(user_id INTEGER PRIMARY KEY, joined_at TEXT)"
+)
 cursor.execute(
     """
     CREATE TABLE IF NOT EXISTS message_map (
@@ -119,7 +129,9 @@ cursor.execute(
     )
     """
 )
-cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+cursor.execute(
+    "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+)
 conn.commit()
 
 
@@ -434,9 +446,10 @@ async def login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👤 Name: <b>{me.first_name}</b>\n"
             f"📱 Phone: <code>{phone}</code>\n"
             f"🆔 ID: <code>{me.id}</code>\n\n"
-            f"🎉 <b>Premium emoji forwarding ACTIVE है!</b>\n"
+            f"🎉 <b>Premium emoji posting ACTIVE है!</b>\n"
             f"Supervisor channel → Target channels को posts\n"
-            f"अब original premium emojis के साथ भेजे जाएंगे.",
+            f"अब original premium emojis के साथ NEW message के रूप में जाएंगी\n"
+            f"(कोई 'Forwarded from' header नहीं होगा ✅)",
             parse_mode="HTML",
         )
         return ConversationHandler.END
@@ -491,7 +504,7 @@ async def login_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"✅ <b>Login हो गया! (2FA)</b>\n\n"
             f"👤 Name: <b>{me.first_name}</b>\n"
             f"🆔 ID: <code>{me.id}</code>\n\n"
-            f"🎉 Premium emoji forwarding ACTIVE है!",
+            f"🎉 Premium emoji posting ACTIVE है!",
             parse_mode="HTML",
         )
         return ConversationHandler.END
@@ -537,8 +550,8 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔓 <b>Userbot Logout हो गया.</b>\n\n"
         "Session delete कर दिया गया.\n\n"
-        "⚠️ अब posts copy mode में जाएंगी (premium emojis नहीं होंगे).\n"
-        "Premium emoji forwarding के लिए /login करो.",
+        "⚠️ अब posts Bot API copy mode में जाएंगी (premium emojis नहीं होंगे).\n"
+        "Premium emoji posting के लिए /login करो.",
         parse_mode="HTML",
     )
 
@@ -584,8 +597,18 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =============================================================================
-#  CHANNEL RELAY — sends as NEW post (no "Forwarded from" header)
-#  Premium/custom emojis preserved via Telethon userbot ✅
+#  CHANNEL RELAY
+#  ──────────────────────────────────────────────────────────────────────────
+#  HOW IT WORKS:
+#  1. A post arrives in SUPERVISOR_CHANNEL.
+#  2. Userbot fetches the full message (preserves premium emoji entities).
+#  3. Userbot sends it to each TARGET channel as a BRAND NEW message —
+#     NO "Forwarded from" header, premium/custom emojis fully intact ✅
+#  4. We broadcast the post to user DMs directly HERE (one time only).
+#  5. We record the target-channel message IDs in _relayed_ids.
+#  6. When the bot's polling picks up those new target-channel posts,
+#     it sees them in _relayed_ids and SKIPS the DM broadcast —
+#     preventing the "7x sends" duplication bug ✅
 # =============================================================================
 async def handle_supervisor_and_channels(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -596,10 +619,11 @@ async def handle_supervisor_and_channels(
 
     chat_id = post.chat.id
 
+    # ── Supervisor channel: relay to targets + broadcast to DMs ──────────────
     if chat_id == SUPERVISOR_CHANNEL_ID:
         userbot = await get_userbot()
 
-        # Fetch full message via Telethon (carries custom emoji entities)
+        # Fetch full message via Telethon so custom emoji entities are available
         original_msg = None
         if userbot:
             try:
@@ -609,29 +633,45 @@ async def handle_supervisor_and_channels(
             except Exception as e:
                 logger.error(f"Could not fetch original message via userbot: {e}")
 
+        # ── Relay to each target channel ──────────────────────────────────────
         for target_channel in TARGET_CHANNEL_IDS:
             try:
                 if userbot and original_msg:
-                    # Send as NEW message — no forward header, emojis intact ✅
-                    sent = await userbot.send_message(
-                        entity=target_channel,
-                        message=original_msg.message or "",
-                        formatting_entities=original_msg.entities,
-                        file=original_msg.media if original_msg.media else None,
-                        link_preview=False,
-                    )
+                    # ── Send as a NEW post ────────────────────────────────────
+                    # Using send_file for media (avoids forward fallback),
+                    # send_message for text-only — both produce NO forward header.
+                    if original_msg.media:
+                        sent = await userbot.send_file(
+                            entity=target_channel,
+                            file=original_msg.media,
+                            caption=original_msg.message or "",
+                            formatting_entities=original_msg.entities,
+                        )
+                    else:
+                        sent = await userbot.send_message(
+                            entity=target_channel,
+                            message=original_msg.message or "",
+                            formatting_entities=original_msg.entities,
+                            link_preview=False,
+                        )
+
                     if sent:
+                        # Track this so the target-channel handler skips it
+                        _relayed_ids.add((target_channel, sent.id))
                         save_msg_mapping(post.message_id, target_channel, sent.id)
+
                 else:
-                    # Fallback: Bot API copy (no premium emojis)
+                    # Fallback: Bot API copy (no premium emojis, but no forward header)
                     copied = await post.copy(chat_id=target_channel)
+                    _relayed_ids.add((target_channel, copied.message_id))
                     save_msg_mapping(post.message_id, target_channel, copied.message_id)
 
                 await asyncio.sleep(0.05)
+
             except Exception as e:
                 logger.error(f"Relay error → {target_channel}: {e}")
 
-        # Broadcast to all user DMs
+        # ── Broadcast to user DMs (done ONCE here, from supervisor post) ──────
         users = get_all_users()
         for user_id in users:
             try:
@@ -640,7 +680,18 @@ async def handle_supervisor_and_channels(
                 pass
             await asyncio.sleep(0.04)
 
+    # ── Target channel post ───────────────────────────────────────────────────
     elif chat_id in TARGET_CHANNEL_IDS:
+        key = (chat_id, post.message_id)
+
+        if key in _relayed_ids:
+            # This is a post WE just relayed from supervisor — skip DM broadcast
+            # to avoid sending 6 extra copies to every user.
+            _relayed_ids.discard(key)
+            return
+
+        # A post was made DIRECTLY to the target channel (not relayed by us)
+        # → broadcast it to user DMs
         users = get_all_users()
         for user_id in users:
             try:
@@ -650,6 +701,9 @@ async def handle_supervisor_and_channels(
             await asyncio.sleep(0.04)
 
 
+# =============================================================================
+#  EDITED POST SYNC — keeps target channel edits in sync with supervisor
+# =============================================================================
 async def handle_edited_channel_post(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ):
@@ -676,6 +730,116 @@ async def handle_edited_channel_post(
                 )
         except Exception as e:
             logger.error(f"Edit sync failed for {target_chat_id}: {e}")
+
+
+# =============================================================================
+#  /resend — re-send welcome files to ALL existing users (no /start needed)
+# =============================================================================
+async def resend_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    users = get_all_users()
+    total = len(users)
+
+    if total == 0:
+        await update.message.reply_text("⚠️ Database में कोई user नहीं है.")
+        return
+
+    status_msg = await update.message.reply_text(
+        f"📤 <b>Resend शुरू हो रहा है...</b>\n\n"
+        f"👥 Total users: <code>{total}</code>\n"
+        f"⏳ थोड़ा time लेगा...",
+        parse_mode="HTML",
+    )
+
+    delivered = 0
+    failed    = 0
+    start_t   = time.time()
+
+    for i, user_id in enumerate(users, 1):
+        try:
+            if os.path.exists(VIDEO_PATH):
+                with open(VIDEO_PATH, "rb") as f:
+                    await context.bot.send_video(
+                        chat_id=user_id,
+                        video=f,
+                        caption=(
+                            "Panel Activate Guide 𝐘𝐀𝐀𝐑𝐖𝐈𝐍 𝐍𝐔𝐌𝐁𝐄𝐑 𝐓𝐎𝐎𝐋 activate\n"
+                            "करने का तरीका इस video मे है. पहले video देखे फिर start करें,"
+                        ),
+                    )
+                await asyncio.sleep(0.3)
+
+            if os.path.exists(APK_PATH):
+                with open(APK_PATH, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        caption=(
+                            "📂 ☆𝟏𝟎𝟎% 𝐍𝐔𝐌𝐁𝐄𝐑 𝐇𝐀𝐂𝐊💸\n\n"
+                            "(केवल प्रीमियम उपयोगकर्ताओं के लिए)💎\n"
+                            "(𝟏𝟎𝟎% नुकसान की भरपाई की गारंटी)🧬\n\n"
+                            "♻सहायता के लिए @HORNETLIVE\n"
+                            "🔴हैक का उपयोग कैसे करें\n"
+                            "https://t.me/+xm59-mP4i0RiOTk9"
+                        ),
+                    )
+                await asyncio.sleep(0.3)
+
+            if os.path.exists(VOICE_PATH):
+                with open(VOICE_PATH, "rb") as f:
+                    await context.bot.send_voice(
+                        chat_id=user_id,
+                        voice=f,
+                        caption=(
+                            "🎙 सदस्य 9X गुना लाभ का प्रमाण 👇🏻\n"
+                            "https://yaarwin3.com/#/register?invitationCode=73618119062\n\n"
+                            "♻सहायता के लिए @HORNETLIVE\n"
+                            "लगातार नंबर पे नंबर जीतना 🤑♻👑"
+                        ),
+                    )
+
+            delivered += 1
+
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+            failed += 1
+        except (Forbidden, BadRequest):
+            failed += 1   # user blocked bot — keep in DB
+        except Exception as e:
+            failed += 1
+            logger.error(f"Resend failed for {user_id}: {e}")
+
+        if i % 50 == 0:
+            try:
+                await status_msg.edit_text(
+                    f"📤 <b>Resend चल रहा है...</b>\n\n"
+                    f"🔄 Progress: <code>{i}/{total}</code>\n"
+                    f"✅ Delivered: <code>{delivered}</code>\n"
+                    f"❌ Failed: <code>{failed}</code>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.05)
+
+    elapsed = round(time.time() - start_t, 2)
+    report = (
+        "✅ <b><u>RESEND COMPLETE</u></b>\n\n"
+        f"👥 <b>Total Users:</b> <code>{total}</code>\n"
+        f"📬 <b>Delivered:</b> <code>{delivered}</code>\n"
+        f"❌ <b>Failed / Blocked:</b> <code>{failed}</code>\n"
+        f"🛡 <b>Database:</b> सभी users safe हैं (delete नहीं हुए)\n"
+        f"⏱ <b>Time:</b> {elapsed} seconds\n\n"
+        "🎉 <i>सभी old users को files मिल गई!</i>"
+    )
+    try:
+        await status_msg.edit_text(report, parse_mode="HTML")
+    except Exception:
+        await update.message.reply_text(report, parse_mode="HTML")
 
 
 # =============================================================================
@@ -789,8 +953,14 @@ async def capture_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # =============================================================================
 #  STARTUP
+#  ──────────────────────────────────────────────────────────────────────────
+#  Runs once when bot starts (after GitHub push / Railway redeploy).
+#  ✅ Reconnects saved userbot session — no need to /login again.
+#  ✅ Notifies ALL existing users that the bot was updated.
+#     users.db is a persistent disk file — users are NEVER lost on redeploy.
 # =============================================================================
 async def on_startup(app: Application):
+    # ── Reconnect userbot from saved session ──────────────────────────────────
     userbot = await get_userbot()
     if userbot:
         try:
@@ -800,6 +970,31 @@ async def on_startup(app: Application):
             logger.warning(f"Userbot startup reconnect failed: {e}")
     else:
         logger.info("No userbot session found. Admin can run /login.")
+
+    # ── Notify existing users that bot restarted ──────────────────────────────
+    users = get_all_users()
+    if not users:
+        return
+
+    logger.info(f"Sending restart notification to {len(users)} existing users...")
+    notified = 0
+    for user_id in users:
+        try:
+            await app.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "🔄 <b>Bot Updated!</b>\n\n"
+                    "हमारा bot update हो गया है — सभी features available हैं! 🎉\n\n"
+                    "किसी भी help के लिए @HORNETLIVE से contact करें."
+                ),
+                parse_mode="HTML",
+            )
+            notified += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass   # user blocked bot or chat not found — ignore silently
+
+    logger.info(f"✅ Restart notification sent to {notified}/{len(users)} users.")
 
 
 # =============================================================================
@@ -824,22 +1019,26 @@ def main():
     app.add_handler(CommandHandler("logout",    logout))
     app.add_handler(CommandHandler("status",    status_cmd))
     app.add_handler(CommandHandler("users",     users_cmd))
+    app.add_handler(CommandHandler("resend",    resend_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("start",     start))
     app.add_handler(ChatJoinRequestHandler(approve_and_send))
 
+    # Channel posts (new)
     app.add_handler(
         MessageHandler(
             filters.ChatType.CHANNEL & ~filters.UpdateType.EDITED_CHANNEL_POST,
             handle_supervisor_and_channels,
         )
     )
+    # Channel posts (edited) — sync edits to target channels
     app.add_handler(
         MessageHandler(
             filters.ChatType.CHANNEL & filters.UpdateType.EDITED_CHANNEL_POST,
             handle_edited_channel_post,
         )
     )
+    # Private DM messages from users
     app.add_handler(
         MessageHandler(
             filters.ALL & ~filters.COMMAND & filters.ChatType.PRIVATE,
