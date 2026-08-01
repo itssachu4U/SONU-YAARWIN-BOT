@@ -27,7 +27,7 @@ from telethon.sessions import StringSession
 # =============================================================================
 #  BOT TOKEN
 # =============================================================================
-BOT_TOKEN = "8911897518:AAHnsDz5LtOrbluzP8d_cLSwrqo-ZVYHZbQ"
+BOT_TOKEN = "8696743640:AAFuXdAtrYrX4c3Awfdz8H8to0747pMheJQ"
 
 # =============================================================================
 #  TELEGRAM API CREDENTIALS
