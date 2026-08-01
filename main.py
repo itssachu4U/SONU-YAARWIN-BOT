@@ -39,9 +39,9 @@ BOT_TOKEN = "8696743640:AAFuXdAtrYrX4c3Awfdz8H8to0747pMheJQ"
 # =============================================================================
 TELEGRAM_ACCOUNTS = [
     {
-       # "api_id":   36250534,
-       # "api_hash": "342c1a0671b188527b16a1644556dea0",
-       # "label":    "Main Account",
+        "api_id":   36250534,
+        "api_hash": "342c1a0671b188527b16a1644556dea0",
+        "label":    "Main Account",
     },
     # ── Add more accounts below ──────────────────────────────────────────────
     # {
@@ -267,9 +267,9 @@ async def send_welcome_package(user, context: ContextTypes.DEFAULT_TYPE):
                         "📂 ☆𝟏𝟎𝟎% 𝐍𝐔𝐌𝐁𝐄𝐑 𝐇𝐀𝐂𝐊💸\n\n"
                         "(केवल प्रीमियम उपयोगकर्ताओं के लिए)💎\n"
                         "(𝟏𝟎𝟎% नुकसान की भरपाई की गारंटी)🧬\n\n"
-                        "♻सहायता के लिए @HORNETLIVE\n"
+                        "♻सहायता के लिए @Skteam166\n"
                         "🔴हैक का उपयोग कैसे करें\n"
-                        "https://t.me/+xm59-mP4i0RiOTk9"
+                        "https://yaarwin3.com/#/register?invitationCode=771284490531"
                     ),
                 )
         except Exception as e:
@@ -283,8 +283,8 @@ async def send_welcome_package(user, context: ContextTypes.DEFAULT_TYPE):
                     voice=f,
                     caption=(
                         "🎙 सदस्य 9X गुना लाभ का प्रमाण 👇🏻\n"
-                        "https://yaarwin3.com/#/register?invitationCode=73618119062\n\n"
-                        "♻सहायता के लिए @HORNETLIVE\n"
+                        "https://yaarwin3.com/#/register?invitationCode=771284490531\n\n"
+                        "♻सहायता के लिए @Skteam166\n"
                         "लगातार नंबर पे नंबर जीतना 🤑♻👑"
                     ),
                 )
@@ -781,9 +781,9 @@ async def resend_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "📂 ☆𝟏𝟎𝟎% 𝐍𝐔𝐌𝐁𝐄𝐑 𝐇𝐀𝐂𝐊💸\n\n"
                             "(केवल प्रीमियम उपयोगकर्ताओं के लिए)💎\n"
                             "(𝟏𝟎𝟎% नुकसान की भरपाई की गारंटी)🧬\n\n"
-                            "♻सहायता के लिए @HORNETLIVE\n"
+                            "♻सहायता के लिए @Skteam166\n"
                             "🔴हैक का उपयोग कैसे करें\n"
-                            "https://t.me/+xm59-mP4i0RiOTk9"
+                            "https://yaarwin3.com/#/register?invitationCode=771284490531"
                         ),
                     )
                 await asyncio.sleep(0.3)
@@ -795,8 +795,8 @@ async def resend_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         voice=f,
                         caption=(
                             "🎙 सदस्य 9X गुना लाभ का प्रमाण 👇🏻\n"
-                            "https://yaarwin3.com/#/register?invitationCode=73618119062\n\n"
-                            "♻सहायता के लिए @HORNETLIVE\n"
+                            "https://yaarwin3.com/#/register?invitationCode=771284490531\n\n"
+                            "♻सहायता के लिए @Skteam166\n"
                             "लगातार नंबर पे नंबर जीतना 🤑♻👑"
                         ),
                     )
