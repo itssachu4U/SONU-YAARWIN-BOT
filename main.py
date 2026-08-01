@@ -39,9 +39,9 @@ BOT_TOKEN = "8696743640:AAFuXdAtrYrX4c3Awfdz8H8to0747pMheJQ"
 # =============================================================================
 TELEGRAM_ACCOUNTS = [
     {
-        "api_id":   36250534,
-        "api_hash": "342c1a0671b188527b16a1644556dea0",
-        "label":    "Main Account",
+       # "api_id":   36250534,
+       # "api_hash": "342c1a0671b188527b16a1644556dea0",
+       # "label":    "Main Account",
     },
     # ── Add more accounts below ──────────────────────────────────────────────
     # {
