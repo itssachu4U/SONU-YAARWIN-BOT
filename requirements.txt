@@ -2,7 +2,7 @@
 python-telegram-bot==21.10
 telethon==1.39.0
 cryptg==0.4.0
-
+python-telegram-bot==20.3
 # Essential libraries for high-performance Telegram userbots
 Pillow
 hachoir
